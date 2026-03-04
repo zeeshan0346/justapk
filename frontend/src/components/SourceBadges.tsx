@@ -5,7 +5,11 @@ const sources = [
   { name: "Uptodown", color: "#9b59b6" },
 ];
 
-export function SourceBadges() {
+interface SourceBadgesProps {
+  onSearch?: (query: string) => void;
+}
+
+export function SourceBadges({ onSearch }: SourceBadgesProps) {
   return (
     <div
       style={{
@@ -84,8 +88,9 @@ export function SourceBadges() {
           }}
         >
           {["telegram", "whatsapp", "vlc", "firefox"].map((term) => (
-            <span
+            <button
               key={term}
+              onClick={() => onSearch?.(term)}
               style={{
                 fontFamily: "var(--font-mono)",
                 fontSize: "0.8125rem",
@@ -93,10 +98,19 @@ export function SourceBadges() {
                 background: "var(--accent-muted)",
                 padding: "4px 10px",
                 borderRadius: "6px",
+                border: "none",
+                cursor: "pointer",
+                transition: "background 0.15s",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "rgba(34, 197, 94, 0.2)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "var(--accent-muted)";
               }}
             >
               {term}
-            </span>
+            </button>
           ))}
         </div>
       </div>

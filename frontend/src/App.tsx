@@ -182,7 +182,7 @@ export function App() {
             </div>
 
             <SearchBar onSearch={handleSearch} loading={loading} />
-            <SourceBadges />
+            <SourceBadges onSearch={handleSearch} />
           </div>
         )}
 
