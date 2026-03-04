@@ -87,7 +87,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ pack
     ? "application/vnd.android.package-archive"
     : "application/octet-stream";
 
-  return new NextResponse(fileData, {
+  return new NextResponse(new Uint8Array(fileData) as unknown as BodyInit, {
     headers: {
       "Content-Type": mime,
       "Content-Disposition": `attachment; filename="${originalFilename}"`,
