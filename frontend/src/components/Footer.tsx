@@ -15,20 +15,20 @@ export function Footer() {
           lineHeight: 1.6,
         }}
       >
-        Powered by{" "}
+        Made by{" "}
         <a
-          href="https://github.com/TheQmaks/justapk"
+          href="https://www.linkedin.com/in/zeeshan1337/"
           target="_blank"
           rel="noopener noreferrer"
           style={{
-            color: "var(--text-secondary)",
+            color: "var(--accent)",
             textDecoration: "underline",
             textUnderlineOffset: "2px",
           }}
         >
-          justapk
+          Zeeshan
         </a>{" "}
-        &mdash; Multi-source APK downloader with automatic fallback
+        &mdash; Multi-source APK downloader for security researchers
       </p>
       <p
         style={{
@@ -38,7 +38,7 @@ export function Footer() {
           opacity: 0.7,
         }}
       >
-        For personal use only. Respect app developers and their licenses.
+        For authorized security testing only. Respect app developers and their licenses.
       </p>
     </footer>
   );

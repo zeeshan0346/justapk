@@ -146,20 +146,41 @@ class APK20:
             "icon_url": icon_url,
         }
 
-    def get_download_url(self, package: str) -> dict:
+    def get_versions(self, package: str) -> list[dict]:
+        resp = self.session.get(f"{self.BASE}/apk/{package}", timeout=HTTP_TIMEOUT)
+        if resp.status_code == 404:
+            return []
+        resp.raise_for_status()
+        versions = []
+        seen = set()
+        for m in re.finditer(r'"versionCode":\s*(\d+)', resp.text):
+            code = m.group(1)
+            if code not in seen:
+                seen.add(code)
+                versions.append({"version_code": code, "version_name": code})
+        # Try to find version names from download links
+        for m in re.finditer(rf'/apk/{re.escape(package)}/download/(\d+)', resp.text):
+            code = m.group(1)
+            if code not in seen:
+                seen.add(code)
+                versions.append({"version_code": code, "version_name": code})
+        return versions
+
+    def get_download_url(self, package: str, version_code: str | None = None) -> dict:
         resp = self.session.get(f"{self.BASE}/apk/{package}", timeout=HTTP_TIMEOUT)
         if resp.status_code == 404:
             raise RuntimeError(f"Package not found: {package}")
         resp.raise_for_status()
 
-        m = re.search(rf'/apk/{re.escape(package)}/download/(\d+)', resp.text)
-        if not m:
-            codes = re.findall(r'"versionCode":\s*(\d+)', resp.text)
-            if not codes:
-                raise RuntimeError(f"No versions found for: {package}")
-            version_code = codes[0]
-        else:
-            version_code = m.group(1)
+        if not version_code:
+            m = re.search(rf'/apk/{re.escape(package)}/download/(\d+)', resp.text)
+            if not m:
+                codes = re.findall(r'"versionCode":\s*(\d+)', resp.text)
+                if not codes:
+                    raise RuntimeError(f"No versions found for: {package}")
+                version_code = codes[0]
+            else:
+                version_code = m.group(1)
 
         soup = BeautifulSoup(resp.text, "lxml")
         name = package
@@ -239,7 +260,24 @@ class FDroid:
             "icon_url": None,
         }
 
-    def get_download_url(self, package: str) -> dict:
+    def get_versions(self, package: str) -> list[dict]:
+        resp = self.session.get(f"{self.API_BASE}/packages/{package}", timeout=HTTP_TIMEOUT)
+        if resp.status_code == 404:
+            return []
+        resp.raise_for_status()
+        data = resp.json()
+        packages = data.get("packages", [])
+        return [
+            {
+                "version_code": str(p.get("versionCode", "")),
+                "version_name": p.get("versionName", str(p.get("versionCode", ""))),
+                "size": p.get("size"),
+                "size_formatted": _format_size(p.get("size")),
+            }
+            for p in packages
+        ]
+
+    def get_download_url(self, package: str, version_code: str | None = None) -> dict:
         resp = self.session.get(f"{self.API_BASE}/packages/{package}", timeout=HTTP_TIMEOUT)
         if resp.status_code == 404:
             raise RuntimeError(f"Package not found: {package}")
@@ -248,13 +286,19 @@ class FDroid:
         packages = data.get("packages", [])
         if not packages:
             raise RuntimeError(f"No versions for: {package}")
-        version_code = data.get("suggestedVersionCode") or packages[0]["versionCode"]
+
+        if version_code:
+            vc = int(version_code)
+        else:
+            vc = data.get("suggestedVersionCode") or packages[0]["versionCode"]
+
         version_name = ""
         for pkg in packages:
-            if pkg["versionCode"] == version_code:
-                version_name = pkg.get("versionName", str(version_code))
+            if pkg["versionCode"] == vc:
+                version_name = pkg.get("versionName", str(vc))
                 break
-        url = f"{self.REPO_BASE}/{package}_{version_code}.apk"
+
+        url = f"{self.REPO_BASE}/{package}_{vc}.apk"
         return {
             "url": url,
             "filename": f"{package}-{version_name}.apk",
@@ -387,7 +431,34 @@ class APKPure:
             "description": detail.get("description_short", ""),
         }
 
-    def get_download_url(self, package: str) -> dict:
+    def get_versions(self, package: str) -> list[dict]:
+        detail = self._get_detail(package)
+        if not detail:
+            return []
+        versions = []
+        ver = detail.get("version_name", "")
+        vc = detail.get("version_code", "")
+        asset = detail.get("asset", {})
+        if ver or vc:
+            versions.append({
+                "version_code": str(vc) if vc else ver,
+                "version_name": ver or str(vc),
+                "size": asset.get("size"),
+                "size_formatted": _format_size(asset.get("size")),
+            })
+        # Check for older versions
+        history = detail.get("version_history", [])
+        for item in history:
+            v_name = item.get("version_name", "")
+            v_code = item.get("version_code", "")
+            if v_name or v_code:
+                versions.append({
+                    "version_code": str(v_code) if v_code else v_name,
+                    "version_name": v_name or str(v_code),
+                })
+        return versions
+
+    def get_download_url(self, package: str, version_code: str | None = None) -> dict:
         detail = self._get_detail(package)
         if not detail:
             raise RuntimeError(f"Package not found: {package}")
@@ -488,7 +559,24 @@ class Uptodown:
             "size_formatted": "Unknown",
         }
 
-    def get_download_url(self, package: str) -> dict:
+    def get_versions(self, package: str) -> list[dict]:
+        app_id = self._resolve_app_id(package)
+        if not app_id:
+            return []
+        detail = self._get_detail(app_id)
+        if not detail:
+            return []
+        versions = []
+        ver = detail.get("lastVersion", "")
+        vc = detail.get("lastVersionCode", "")
+        if ver or vc:
+            versions.append({
+                "version_code": str(vc) if vc else ver,
+                "version_name": ver or str(vc),
+            })
+        return versions
+
+    def get_download_url(self, package: str, version_code: str | None = None) -> dict:
         app_id = self._resolve_app_id(package)
         if not app_id:
             raise RuntimeError(f"App not found: {package}")
@@ -702,6 +790,33 @@ async def info(package: str, source: str | None = None):
     raise fastapi.HTTPException(status_code=404, detail="App not found")
 
 
+@app.get("/api/versions/{package:path}")
+async def versions(package: str, source: str | None = None):
+    """List available versions for a package."""
+    all_versions = []
+
+    if source and source in SOURCES:
+        try:
+            src = SOURCES[source]()
+            if hasattr(src, "get_versions"):
+                all_versions = src.get_versions(package)
+        except Exception:
+            pass
+    else:
+        for name in SOURCE_PRIORITY:
+            try:
+                src = SOURCES[name]()
+                if hasattr(src, "get_versions"):
+                    vlist = src.get_versions(package)
+                    for v in vlist:
+                        v["source"] = name
+                    all_versions.extend(vlist)
+            except Exception:
+                continue
+
+    return {"versions": all_versions, "package": package}
+
+
 @app.get("/api/download/{package:path}")
 async def download(package: str, source: str | None = None):
     """Get download URL for a package."""
@@ -729,13 +844,19 @@ async def download(package: str, source: str | None = None):
 
 
 @app.get("/api/download-apk/{package:path}")
-async def download_apk(package: str, source: str | None = None):
-    """Download and return a pure APK file.
+async def download_apk(
+    package: str,
+    source: str | None = None,
+    version: str | None = None,
+    convert_xapk: bool = True,
+):
+    """Download and return an APK file.
 
-    If the source provides an XAPK (split bundle), this endpoint
-    automatically extracts the base APK from it. This is what you
-    want for bug bounty / source code analysis with tools like
-    jadx, apktool, or MobSF.
+    Args:
+        convert_xapk: If True (default), XAPK bundles are automatically
+            converted to pure APK by extracting base.apk. Set to False
+            to download the raw XAPK file as-is.
+        version: Specific version code to download.
     """
     # Get download URL from sources
     dl_info = None
@@ -744,14 +865,14 @@ async def download_apk(package: str, source: str | None = None):
     if source and source in SOURCES:
         try:
             src = SOURCES[source]()
-            dl_info = src.get_download_url(package)
+            dl_info = src.get_download_url(package, version_code=version)
         except Exception as e:
             errors.append(f"{source}: {e}")
     else:
         for name in SOURCE_PRIORITY:
             try:
                 src = SOURCES[name]()
-                dl_info = src.get_download_url(package)
+                dl_info = src.get_download_url(package, version_code=version)
                 break
             except Exception as e:
                 errors.append(f"{name}: {e}")
@@ -786,31 +907,42 @@ async def download_apk(package: str, source: str | None = None):
 
     # Detect file type and convert if needed
     file_type = "apk"
+    was_converted = False
     if _is_xapk(file_data):
         file_type = "xapk"
-        try:
-            file_data, extracted_name = _extract_base_apk_from_xapk(file_data)
-            original_filename = extracted_name
-        except Exception as e:
-            raise fastapi.HTTPException(
-                status_code=500,
-                detail=f"XAPK extraction failed: {e}"
-            )
-    elif not _is_valid_apk(file_data):
-        # Might be a regular APK that just doesn't validate - serve it anyway
-        pass
+        if convert_xapk:
+            try:
+                file_data, extracted_name = _extract_base_apk_from_xapk(file_data)
+                original_filename = extracted_name
+                was_converted = True
+            except Exception as e:
+                raise fastapi.HTTPException(
+                    status_code=500,
+                    detail=f"XAPK extraction failed: {e}"
+                )
+        else:
+            # Serve raw XAPK
+            if not original_filename.endswith(".xapk"):
+                original_filename = original_filename.rsplit(".", 1)[0] + ".xapk"
 
-    # Ensure filename ends with .apk
-    if not original_filename.endswith(".apk"):
+    # Ensure proper extension
+    if was_converted and not original_filename.endswith(".apk"):
         original_filename = original_filename.rsplit(".", 1)[0] + ".apk"
+
+    mime = (
+        "application/vnd.android.package-archive"
+        if file_type == "apk" or was_converted
+        else "application/octet-stream"
+    )
 
     return fastapi.responses.Response(
         content=file_data,
-        media_type="application/vnd.android.package-archive",
+        media_type=mime,
         headers={
             "Content-Disposition": f'attachment; filename="{original_filename}"',
             "Content-Length": str(len(file_data)),
             "X-Original-Type": file_type,
+            "X-Was-Converted": str(was_converted).lower(),
             "X-Filename": original_filename,
         },
     )

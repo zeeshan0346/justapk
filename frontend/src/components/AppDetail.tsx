@@ -1,13 +1,28 @@
-import type { AppInfo, DownloadInfo } from "../App";
+import type { AppInfo, DownloadInfo, VersionInfo } from "../App";
 
 interface AppDetailProps {
   app: AppInfo | null;
   download: DownloadInfo | null;
+  versions: VersionInfo[];
+  selectedVersion: string;
+  convertXapk: boolean;
+  onVersionChange: (versionCode: string) => void;
+  onConvertToggle: (convert: boolean) => void;
   loading: boolean;
   error: string | null;
 }
 
-export function AppDetail({ app, download, loading, error }: AppDetailProps) {
+export function AppDetail({
+  app,
+  download,
+  versions,
+  selectedVersion,
+  convertXapk,
+  onVersionChange,
+  onConvertToggle,
+  loading,
+  error,
+}: AppDetailProps) {
   if (loading && !app) {
     return (
       <div
@@ -115,7 +130,7 @@ export function AppDetail({ app, download, loading, error }: AppDetailProps) {
         {app.icon_url ? (
           <img
             src={app.icon_url}
-            alt=""
+            alt={`${app.name} icon`}
             width={72}
             height={72}
             style={{
@@ -174,9 +189,7 @@ export function AppDetail({ app, download, loading, error }: AppDetailProps) {
             {app.package}
           </div>
           <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
-            {app.version && (
-              <InfoTag label="Version" value={app.version} />
-            )}
+            {app.version && <InfoTag label="Version" value={app.version} />}
             {app.size_formatted && app.size_formatted !== "Unknown" && (
               <InfoTag label="Size" value={app.size_formatted} />
             )}
@@ -199,13 +212,132 @@ export function AppDetail({ app, download, loading, error }: AppDetailProps) {
         </div>
       )}
 
-      {/* Download Section */}
+      {/* Download Options */}
       <div
         style={{
-          padding: "20px 28px 28px",
+          padding: "20px 28px",
           borderTop: "1px solid var(--border)",
+          display: "flex",
+          flexDirection: "column",
+          gap: "16px",
         }}
       >
+        {/* Version Selector */}
+        {versions.length > 0 && (
+          <div>
+            <label
+              style={{
+                display: "block",
+                fontSize: "0.75rem",
+                fontWeight: 600,
+                color: "var(--text-tertiary)",
+                marginBottom: "6px",
+                textTransform: "uppercase",
+                letterSpacing: "0.05em",
+              }}
+            >
+              Version
+            </label>
+            <select
+              value={selectedVersion}
+              onChange={(e) => onVersionChange(e.target.value)}
+              style={{
+                width: "100%",
+                padding: "10px 12px",
+                fontSize: "0.875rem",
+                fontFamily: "var(--font-mono)",
+                background: "var(--bg-tertiary)",
+                border: "1px solid var(--border)",
+                borderRadius: "var(--radius-sm)",
+                color: "var(--text-primary)",
+                outline: "none",
+                cursor: "pointer",
+                appearance: "none",
+                backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2371717a' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")`,
+                backgroundRepeat: "no-repeat",
+                backgroundPosition: "right 12px center",
+              }}
+            >
+              <option value="">Latest</option>
+              {versions.map((v, i) => (
+                <option key={`${v.version_code}-${i}`} value={v.version_code}>
+                  {v.version_name}
+                  {v.source ? ` (${v.source})` : ""}
+                  {v.size_formatted ? ` - ${v.size_formatted}` : ""}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {/* XAPK Toggle */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "12px 14px",
+            background: "var(--bg-tertiary)",
+            borderRadius: "var(--radius-sm)",
+            border: "1px solid var(--border)",
+          }}
+        >
+          <div>
+            <div
+              style={{
+                fontSize: "0.8125rem",
+                fontWeight: 600,
+                color: "var(--text-primary)",
+                marginBottom: "2px",
+              }}
+            >
+              Convert XAPK to APK
+            </div>
+            <div
+              style={{
+                fontSize: "0.6875rem",
+                color: "var(--text-tertiary)",
+                lineHeight: 1.4,
+              }}
+            >
+              {convertXapk
+                ? "Extracts base.apk from XAPK bundles (best for jadx/apktool)"
+                : "Downloads raw XAPK bundle as-is"}
+            </div>
+          </div>
+          <button
+            onClick={() => onConvertToggle(!convertXapk)}
+            role="switch"
+            aria-checked={convertXapk}
+            style={{
+              width: "44px",
+              height: "24px",
+              borderRadius: "12px",
+              border: "none",
+              cursor: "pointer",
+              position: "relative",
+              flexShrink: 0,
+              marginLeft: "12px",
+              background: convertXapk ? "var(--accent)" : "var(--border)",
+              transition: "background 0.2s",
+            }}
+          >
+            <span
+              style={{
+                position: "absolute",
+                top: "2px",
+                left: convertXapk ? "22px" : "2px",
+                width: "20px",
+                height: "20px",
+                borderRadius: "50%",
+                background: "var(--text-primary)",
+                transition: "left 0.2s",
+              }}
+            />
+          </button>
+        </div>
+
+        {/* Download Button */}
         {download ? (
           <div>
             <a
@@ -253,15 +385,16 @@ export function AppDetail({ app, download, loading, error }: AppDetailProps) {
                 <polyline points="7,10 12,15 17,10" />
                 <line x1="12" y1="15" x2="12" y2="3" />
               </svg>
-              Download APK
+              Download {convertXapk ? "APK" : "XAPK"}
             </a>
             <div
               style={{
-                marginTop: "12px",
+                marginTop: "10px",
                 display: "flex",
-                flexDirection: "column",
                 alignItems: "center",
+                justifyContent: "center",
                 gap: "8px",
+                flexWrap: "wrap",
               }}
             >
               <span
@@ -277,18 +410,21 @@ export function AppDetail({ app, download, loading, error }: AppDetailProps) {
               >
                 {download.filename}
               </span>
-              <span
-                style={{
-                  fontSize: "0.6875rem",
-                  color: "var(--accent)",
-                  background: "var(--accent-muted)",
-                  padding: "3px 10px",
-                  borderRadius: "4px",
-                  fontFamily: "var(--font-mono)",
-                }}
-              >
-                XAPK auto-converted to pure APK
-              </span>
+              {convertXapk && (
+                <span
+                  style={{
+                    fontSize: "0.625rem",
+                    color: "var(--accent)",
+                    background: "var(--accent-muted)",
+                    padding: "2px 8px",
+                    borderRadius: "4px",
+                    fontFamily: "var(--font-mono)",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  XAPK auto-converted
+                </span>
+              )}
             </div>
           </div>
         ) : (

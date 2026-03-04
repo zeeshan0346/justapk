@@ -34,6 +34,14 @@ export interface DownloadInfo {
   headers?: Record<string, string>;
 }
 
+export interface VersionInfo {
+  version_code: string;
+  version_name: string;
+  source?: string;
+  size?: number;
+  size_formatted?: string;
+}
+
 type View = "search" | "results" | "detail";
 
 export function App() {
@@ -42,6 +50,9 @@ export function App() {
   const [results, setResults] = useState<AppResult[]>([]);
   const [selectedApp, setSelectedApp] = useState<AppInfo | null>(null);
   const [downloadInfo, setDownloadInfo] = useState<DownloadInfo | null>(null);
+  const [versions, setVersions] = useState<VersionInfo[]>([]);
+  const [selectedVersion, setSelectedVersion] = useState<string>("");
+  const [convertXapk, setConvertXapk] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -60,12 +71,11 @@ export function App() {
         throw new Error(data.detail || "Search failed");
       }
 
-      // If the API returned info directly (Play Store URL), go to detail
       if (data.info) {
         setSelectedApp(data.info);
         setView("detail");
-        // Also fetch download URL
         fetchDownload(data.info.package);
+        fetchVersions(data.info.package);
         return;
       }
 
@@ -84,6 +94,8 @@ export function App() {
     setError(null);
     setLoading(true);
     setDownloadInfo(null);
+    setVersions([]);
+    setSelectedVersion("");
     setView("detail");
 
     try {
@@ -96,6 +108,7 @@ export function App() {
 
       setSelectedApp(data.info);
       fetchDownload(pkg);
+      fetchVersions(pkg);
     } catch (e: any) {
       setError(e.message || "Failed to get app info");
       setSelectedApp(null);
@@ -104,22 +117,63 @@ export function App() {
     }
   };
 
-  const fetchDownload = async (pkg: string) => {
+  const fetchDownload = async (
+    pkg: string,
+    versionCode?: string,
+    convert?: boolean,
+  ) => {
+    const shouldConvert = convert ?? convertXapk;
     try {
-      // First get the download metadata (URL, filename, etc.)
       const resp = await fetch(`/api/download/${encodeURIComponent(pkg)}`);
       const data = await resp.json();
       if (resp.ok && data.download) {
-        // Override the download URL to use our APK extraction endpoint
-        // This ensures XAPK files are converted to pure APK automatically
+        const params = new URLSearchParams();
+        if (versionCode) params.set("version", versionCode);
+        params.set("convert_xapk", String(shouldConvert));
+        const qs = params.toString();
+
         setDownloadInfo({
           ...data.download,
-          url: `/api/download-apk/${encodeURIComponent(pkg)}`,
-          filename: data.download.filename?.replace(/\.xapk$/i, ".apk") || `${pkg}.apk`,
+          url: `/api/download-apk/${encodeURIComponent(pkg)}${qs ? `?${qs}` : ""}`,
+          filename: shouldConvert
+            ? data.download.filename?.replace(/\.xapk$/i, ".apk") || `${pkg}.apk`
+            : data.download.filename || `${pkg}.apk`,
         });
       }
     } catch {
-      // Download info is optional, don't block
+      // Download info is optional
+    }
+  };
+
+  const fetchVersions = async (pkg: string) => {
+    try {
+      const resp = await fetch(`/api/versions/${encodeURIComponent(pkg)}`);
+      const data = await resp.json();
+      if (resp.ok && data.versions) {
+        setVersions(data.versions);
+      }
+    } catch {
+      // Versions are optional
+    }
+  };
+
+  const handleVersionChange = (versionCode: string) => {
+    setSelectedVersion(versionCode);
+    if (selectedApp) {
+      setDownloadInfo(null);
+      fetchDownload(selectedApp.package, versionCode || undefined);
+    }
+  };
+
+  const handleConvertToggle = (convert: boolean) => {
+    setConvertXapk(convert);
+    if (selectedApp) {
+      setDownloadInfo(null);
+      fetchDownload(
+        selectedApp.package,
+        selectedVersion || undefined,
+        convert,
+      );
     }
   };
 
@@ -132,6 +186,8 @@ export function App() {
       }
       setSelectedApp(null);
       setDownloadInfo(null);
+      setVersions([]);
+      setSelectedVersion("");
       setError(null);
     } else {
       setView("search");
@@ -247,6 +303,11 @@ export function App() {
             <AppDetail
               app={selectedApp}
               download={downloadInfo}
+              versions={versions}
+              selectedVersion={selectedVersion}
+              convertXapk={convertXapk}
+              onVersionChange={handleVersionChange}
+              onConvertToggle={handleConvertToggle}
               loading={loading}
               error={error}
             />
