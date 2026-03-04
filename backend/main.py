@@ -9,6 +9,9 @@ import time
 import uuid
 from pathlib import Path
 
+import shutil
+import zipfile
+
 import fastapi
 import fastapi.middleware.cors
 import fastapi.responses
@@ -529,6 +532,99 @@ class Uptodown:
 
 
 # ---------------------------------------------------------------------------
+# XAPK → APK extraction (for bug bounty / source code analysis)
+# ---------------------------------------------------------------------------
+
+def _extract_base_apk_from_xapk(xapk_bytes: bytes) -> tuple[bytes, str]:
+    """Extract the base APK from an XAPK bundle (ZIP archive).
+
+    XAPK files are ZIP archives containing:
+      - manifest.json (package info)
+      - base.apk (the main APK we want)
+      - config.*.apk (split APKs for density/arch/locale)
+
+    For bug bounty analysis, we only need base.apk since it contains
+    all the app code, AndroidManifest.xml, and main resources.
+
+    Returns (apk_bytes, filename).
+    """
+    import io
+
+    with zipfile.ZipFile(io.BytesIO(xapk_bytes), "r") as zf:
+        names = zf.namelist()
+
+        # Read manifest for naming
+        package_name = "app"
+        version = ""
+        if "manifest.json" in names:
+            try:
+                manifest = json.loads(zf.read("manifest.json"))
+                package_name = manifest.get("package_name", "app")
+                version = manifest.get("version_name", "")
+            except (json.JSONDecodeError, KeyError):
+                pass
+
+        # Find base APK - prioritize exact "base.apk" match
+        base_apk_name = None
+
+        # 1. Look for base.apk in root
+        if "base.apk" in names:
+            base_apk_name = "base.apk"
+        else:
+            # 2. Look for base.apk in subdirectories
+            for name in names:
+                if name.endswith("/base.apk") or name.lower() == "base.apk":
+                    base_apk_name = name
+                    break
+
+        if not base_apk_name:
+            # 3. Look for any .apk file named after the package
+            for name in names:
+                if name.endswith(".apk") and package_name in name:
+                    base_apk_name = name
+                    break
+
+        if not base_apk_name:
+            # 4. Find the largest APK (likely the base)
+            apk_files = [n for n in names if n.endswith(".apk")]
+            if not apk_files:
+                raise RuntimeError("No APK files found inside XAPK")
+            base_apk_name = max(apk_files, key=lambda n: zf.getinfo(n).file_size)
+
+        apk_data = zf.read(base_apk_name)
+        filename = f"{package_name}-{version}.apk" if version else f"{package_name}.apk"
+        return apk_data, filename
+
+
+def _is_xapk(data: bytes) -> bool:
+    """Check if the downloaded data is an XAPK (ZIP with APKs inside)."""
+    if not data[:4] == b"PK\x03\x04":  # ZIP magic bytes
+        return False
+    try:
+        import io
+        with zipfile.ZipFile(io.BytesIO(data), "r") as zf:
+            names = zf.namelist()
+            # XAPK contains .apk files and usually manifest.json
+            has_apks = any(n.endswith(".apk") for n in names)
+            has_manifest = "manifest.json" in names
+            return has_apks and (has_manifest or sum(1 for n in names if n.endswith(".apk")) > 1)
+    except zipfile.BadZipFile:
+        return False
+
+
+def _is_valid_apk(data: bytes) -> bool:
+    """Check if bytes are a valid APK (ZIP with AndroidManifest.xml)."""
+    if not data[:4] == b"PK\x03\x04":
+        return False
+    try:
+        import io
+        with zipfile.ZipFile(io.BytesIO(data), "r") as zf:
+            return "AndroidManifest.xml" in zf.namelist()
+    except zipfile.BadZipFile:
+        return False
+
+
+# ---------------------------------------------------------------------------
 # Source manager
 # ---------------------------------------------------------------------------
 
@@ -629,6 +725,94 @@ async def download(package: str, source: str | None = None):
     raise fastapi.HTTPException(
         status_code=404,
         detail=f"All sources failed: {'; '.join(errors)}"
+    )
+
+
+@app.get("/api/download-apk/{package:path}")
+async def download_apk(package: str, source: str | None = None):
+    """Download and return a pure APK file.
+
+    If the source provides an XAPK (split bundle), this endpoint
+    automatically extracts the base APK from it. This is what you
+    want for bug bounty / source code analysis with tools like
+    jadx, apktool, or MobSF.
+    """
+    # Get download URL from sources
+    dl_info = None
+    errors = []
+
+    if source and source in SOURCES:
+        try:
+            src = SOURCES[source]()
+            dl_info = src.get_download_url(package)
+        except Exception as e:
+            errors.append(f"{source}: {e}")
+    else:
+        for name in SOURCE_PRIORITY:
+            try:
+                src = SOURCES[name]()
+                dl_info = src.get_download_url(package)
+                break
+            except Exception as e:
+                errors.append(f"{name}: {e}")
+
+    if not dl_info:
+        raise fastapi.HTTPException(
+            status_code=404,
+            detail=f"All sources failed: {'; '.join(errors)}"
+        )
+
+    # Download the file
+    try:
+        dl_headers = dl_info.get("headers", {})
+        dl_headers.setdefault("User-Agent", UA)
+        resp = requests.get(
+            dl_info["url"],
+            headers=dl_headers,
+            timeout=120,
+            stream=True,
+        )
+        resp.raise_for_status()
+
+        # Read entire content (needed for XAPK detection/extraction)
+        file_data = resp.content
+        original_filename = dl_info.get("filename", f"{package}.apk")
+
+    except Exception as e:
+        raise fastapi.HTTPException(
+            status_code=502,
+            detail=f"Download failed: {e}"
+        )
+
+    # Detect file type and convert if needed
+    file_type = "apk"
+    if _is_xapk(file_data):
+        file_type = "xapk"
+        try:
+            file_data, extracted_name = _extract_base_apk_from_xapk(file_data)
+            original_filename = extracted_name
+        except Exception as e:
+            raise fastapi.HTTPException(
+                status_code=500,
+                detail=f"XAPK extraction failed: {e}"
+            )
+    elif not _is_valid_apk(file_data):
+        # Might be a regular APK that just doesn't validate - serve it anyway
+        pass
+
+    # Ensure filename ends with .apk
+    if not original_filename.endswith(".apk"):
+        original_filename = original_filename.rsplit(".", 1)[0] + ".apk"
+
+    return fastapi.responses.Response(
+        content=file_data,
+        media_type="application/vnd.android.package-archive",
+        headers={
+            "Content-Disposition": f'attachment; filename="{original_filename}"',
+            "Content-Length": str(len(file_data)),
+            "X-Original-Type": file_type,
+            "X-Filename": original_filename,
+        },
     )
 
 

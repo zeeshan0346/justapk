@@ -106,10 +106,17 @@ export function App() {
 
   const fetchDownload = async (pkg: string) => {
     try {
+      // First get the download metadata (URL, filename, etc.)
       const resp = await fetch(`/api/download/${encodeURIComponent(pkg)}`);
       const data = await resp.json();
       if (resp.ok && data.download) {
-        setDownloadInfo(data.download);
+        // Override the download URL to use our APK extraction endpoint
+        // This ensures XAPK files are converted to pure APK automatically
+        setDownloadInfo({
+          ...data.download,
+          url: `/api/download-apk/${encodeURIComponent(pkg)}`,
+          filename: data.download.filename?.replace(/\.xapk$/i, ".apk") || `${pkg}.apk`,
+        });
       }
     } catch {
       // Download info is optional, don't block

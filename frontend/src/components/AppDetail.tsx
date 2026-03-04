@@ -259,9 +259,9 @@ export function AppDetail({ app, download, loading, error }: AppDetailProps) {
               style={{
                 marginTop: "12px",
                 display: "flex",
+                flexDirection: "column",
                 alignItems: "center",
                 gap: "8px",
-                justifyContent: "center",
               }}
             >
               <span
@@ -276,6 +276,18 @@ export function AppDetail({ app, download, loading, error }: AppDetailProps) {
                 }}
               >
                 {download.filename}
+              </span>
+              <span
+                style={{
+                  fontSize: "0.6875rem",
+                  color: "var(--accent)",
+                  background: "var(--accent-muted)",
+                  padding: "3px 10px",
+                  borderRadius: "4px",
+                  fontFamily: "var(--font-mono)",
+                }}
+              >
+                XAPK auto-converted to pure APK
               </span>
             </div>
           </div>
