@@ -1,43 +1,40 @@
+"use client";
+
 export function Header() {
   return (
     <header
       style={{
-        borderBottom: "1px solid var(--border)",
-        padding: "16px 20px",
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
-        backdropFilter: "blur(12px)",
-        background: "rgba(10, 10, 11, 0.8)",
+        padding: "16px 24px",
+        borderBottom: "1px solid var(--border)",
+        background: "var(--background)",
         position: "sticky",
         top: 0,
         zIndex: 50,
+        backdropFilter: "blur(12px)",
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
         <div
           style={{
-            width: "32px",
-            height: "32px",
-            borderRadius: "var(--radius-sm)",
+            width: 28,
+            height: 28,
             background: "var(--accent)",
+            borderRadius: "6px",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
+            fontFamily: "'JetBrains Mono', monospace",
             fontWeight: 700,
-            fontSize: "0.875rem",
-            color: "var(--bg-primary)",
+            fontSize: "0.75rem",
+            color: "var(--background)",
           }}
         >
           {"//"}
         </div>
-        <span
-          style={{
-            fontWeight: 700,
-            fontSize: "1.125rem",
-            letterSpacing: "-0.02em",
-          }}
-        >
+        <span style={{ fontWeight: 700, fontSize: "1.125rem", letterSpacing: "-0.02em" }}>
           APKDrop
         </span>
       </div>
@@ -54,7 +51,7 @@ export function Header() {
           textDecoration: "none",
           transition: "color 0.15s",
         }}
-        onMouseEnter={(e) => (e.currentTarget.style.color = "var(--text-primary)")}
+        onMouseEnter={(e) => (e.currentTarget.style.color = "var(--foreground)")}
         onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-tertiary)")}
       >
         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">

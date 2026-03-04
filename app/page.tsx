@@ -1,12 +1,16 @@
-import { useState } from "react";
-import { Header } from "./components/Header";
-import { SearchBar } from "./components/SearchBar";
-import { SearchResults } from "./components/SearchResults";
-import { AppDetail } from "./components/AppDetail";
-import { SourceBadges } from "./components/SourceBadges";
-import { Footer } from "./components/Footer";
+"use client";
 
-export interface AppResult {
+import { useState } from "react";
+import { Header } from "@/components/header";
+import { SearchBar } from "@/components/search-bar";
+import { SearchResults } from "@/components/search-results";
+import { AppDetail } from "@/components/app-detail";
+import { SourceBadges } from "@/components/source-badges";
+import { Footer } from "@/components/footer";
+
+type View = "search" | "results" | "detail";
+
+interface AppResult {
   package: string;
   name: string;
   version: string;
@@ -15,7 +19,7 @@ export interface AppResult {
   description?: string;
 }
 
-export interface AppInfo {
+interface AppInfo {
   package: string;
   name: string;
   version: string;
@@ -26,35 +30,60 @@ export interface AppInfo {
   description?: string;
 }
 
-export interface DownloadInfo {
+interface DownloadInfo {
   url: string;
   filename: string;
   version: string;
   source: string;
-  headers?: Record<string, string>;
 }
 
-export interface VersionInfo {
+interface VersionInfo {
   version_code: string;
   version_name: string;
   source?: string;
-  size?: number;
   size_formatted?: string;
 }
 
-type View = "search" | "results" | "detail";
-
-export function App() {
+export default function Home() {
   const [view, setView] = useState<View>("search");
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<AppResult[]>([]);
   const [selectedApp, setSelectedApp] = useState<AppInfo | null>(null);
   const [downloadInfo, setDownloadInfo] = useState<DownloadInfo | null>(null);
   const [versions, setVersions] = useState<VersionInfo[]>([]);
-  const [selectedVersion, setSelectedVersion] = useState<string>("");
+  const [selectedVersion, setSelectedVersion] = useState("");
   const [convertXapk, setConvertXapk] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const fetchDownload = async (pkg: string, versionCode?: string, convert?: boolean) => {
+    const shouldConvert = convert ?? convertXapk;
+    try {
+      const resp = await fetch(`/api/download/${encodeURIComponent(pkg)}`);
+      const data = await resp.json();
+      if (resp.ok && data.download) {
+        const params = new URLSearchParams();
+        if (versionCode) params.set("version", versionCode);
+        params.set("convert_xapk", String(shouldConvert));
+        const qs = params.toString();
+        setDownloadInfo({
+          ...data.download,
+          url: `/api/download-apk/${encodeURIComponent(pkg)}${qs ? `?${qs}` : ""}`,
+          filename: shouldConvert
+            ? (data.download.filename?.replace(/\.xapk$/i, ".apk") || `${pkg}.apk`)
+            : (data.download.filename || `${pkg}.apk`),
+        });
+      }
+    } catch {}
+  };
+
+  const fetchVersions = async (pkg: string) => {
+    try {
+      const resp = await fetch(`/api/versions/${encodeURIComponent(pkg)}`);
+      const data = await resp.json();
+      if (resp.ok && data.versions) setVersions(data.versions);
+    } catch {}
+  };
 
   const handleSearch = async (q: string) => {
     setQuery(q);
@@ -66,11 +95,7 @@ export function App() {
     try {
       const resp = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
       const data = await resp.json();
-
-      if (!resp.ok) {
-        throw new Error(data.detail || "Search failed");
-      }
-
+      if (!resp.ok) throw new Error(data.error || "Search failed");
       if (data.info) {
         setSelectedApp(data.info);
         setView("detail");
@@ -78,9 +103,8 @@ export function App() {
         fetchVersions(data.info.package);
         return;
       }
-
       setResults(data.results || []);
-      if ((data.results || []).length === 0) {
+      if (!(data.results || []).length) {
         setError("No apps found. Try a different search term or a package name like com.whatsapp.");
       }
     } catch (e: any) {
@@ -101,11 +125,7 @@ export function App() {
     try {
       const resp = await fetch(`/api/info/${encodeURIComponent(pkg)}`);
       const data = await resp.json();
-
-      if (!resp.ok) {
-        throw new Error(data.detail || "Failed to get app info");
-      }
-
+      if (!resp.ok) throw new Error(data.error || "Failed to get app info");
       setSelectedApp(data.info);
       fetchDownload(pkg);
       fetchVersions(pkg);
@@ -114,46 +134,6 @@ export function App() {
       setSelectedApp(null);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const fetchDownload = async (
-    pkg: string,
-    versionCode?: string,
-    convert?: boolean,
-  ) => {
-    const shouldConvert = convert ?? convertXapk;
-    try {
-      const resp = await fetch(`/api/download/${encodeURIComponent(pkg)}`);
-      const data = await resp.json();
-      if (resp.ok && data.download) {
-        const params = new URLSearchParams();
-        if (versionCode) params.set("version", versionCode);
-        params.set("convert_xapk", String(shouldConvert));
-        const qs = params.toString();
-
-        setDownloadInfo({
-          ...data.download,
-          url: `/api/download-apk/${encodeURIComponent(pkg)}${qs ? `?${qs}` : ""}`,
-          filename: shouldConvert
-            ? data.download.filename?.replace(/\.xapk$/i, ".apk") || `${pkg}.apk`
-            : data.download.filename || `${pkg}.apk`,
-        });
-      }
-    } catch {
-      // Download info is optional
-    }
-  };
-
-  const fetchVersions = async (pkg: string) => {
-    try {
-      const resp = await fetch(`/api/versions/${encodeURIComponent(pkg)}`);
-      const data = await resp.json();
-      if (resp.ok && data.versions) {
-        setVersions(data.versions);
-      }
-    } catch {
-      // Versions are optional
     }
   };
 
@@ -169,21 +149,14 @@ export function App() {
     setConvertXapk(convert);
     if (selectedApp) {
       setDownloadInfo(null);
-      fetchDownload(
-        selectedApp.package,
-        selectedVersion || undefined,
-        convert,
-      );
+      fetchDownload(selectedApp.package, selectedVersion || undefined, convert);
     }
   };
 
   const handleBack = () => {
     if (view === "detail") {
-      if (results.length > 0) {
-        setView("results");
-      } else {
-        setView("search");
-      }
+      if (results.length > 0) setView("results");
+      else setView("search");
       setSelectedApp(null);
       setDownloadInfo(null);
       setVersions([]);
@@ -197,35 +170,19 @@ export function App() {
   };
 
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        display: "flex",
-        flexDirection: "column",
-      }}
-    >
+    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
       <Header />
-
-      <main
-        style={{
-          flex: 1,
-          width: "100%",
-          maxWidth: "720px",
-          margin: "0 auto",
-          padding: "0 20px",
-        }}
-      >
+      <main style={{ flex: 1, width: "100%", maxWidth: 720, margin: "0 auto", padding: "0 20px" }}>
         {view === "search" && (
-          <div className="animate-fade-in" style={{ paddingTop: "80px" }}>
-            <div style={{ textAlign: "center", marginBottom: "48px" }}>
+          <div className="animate-fade-in" style={{ paddingTop: 80 }}>
+            <div style={{ textAlign: "center", marginBottom: 48 }}>
               <h1
                 style={{
                   fontSize: "clamp(2rem, 5vw, 3.5rem)",
                   fontWeight: 800,
                   letterSpacing: "-0.03em",
                   lineHeight: 1.1,
-                  marginBottom: "16px",
-                  color: "var(--text-primary)",
+                  marginBottom: 16,
                 }}
               >
                 Download any APK
@@ -233,31 +190,24 @@ export function App() {
               <p
                 style={{
                   fontSize: "1.125rem",
-                  color: "var(--text-secondary)",
-                  maxWidth: "480px",
+                  color: "var(--muted-foreground)",
+                  maxWidth: 480,
                   margin: "0 auto",
                   lineHeight: 1.6,
                 }}
               >
-                Search by app name or paste a Google Play link.
-                We search across multiple sources to find your APK.
+                Search by app name or paste a Google Play link. We search across multiple sources.
               </p>
             </div>
-
             <SearchBar onSearch={handleSearch} loading={loading} />
             <SourceBadges onSearch={handleSearch} />
           </div>
         )}
 
         {view === "results" && (
-          <div className="animate-fade-in" style={{ paddingTop: "32px" }}>
-            <SearchBar
-              onSearch={handleSearch}
-              loading={loading}
-              initialValue={query}
-              compact
-            />
-            <div style={{ marginTop: "8px", marginBottom: "24px" }}>
+          <div className="animate-fade-in" style={{ paddingTop: 32 }}>
+            <SearchBar onSearch={handleSearch} loading={loading} initialValue={query} compact />
+            <div style={{ marginTop: 8, marginBottom: 24 }}>
               <button
                 onClick={handleBack}
                 style={{
@@ -266,25 +216,20 @@ export function App() {
                   color: "var(--text-tertiary)",
                   cursor: "pointer",
                   fontSize: "0.875rem",
-                  fontFamily: "var(--font-sans)",
+                  fontFamily: "inherit",
                   padding: "4px 0",
                 }}
               >
                 {"<-"} Back to search
               </button>
             </div>
-            <SearchResults
-              results={results}
-              loading={loading}
-              error={error}
-              onSelect={handleSelectApp}
-            />
+            <SearchResults results={results} loading={loading} error={error} onSelect={handleSelectApp} />
           </div>
         )}
 
         {view === "detail" && (
-          <div className="animate-fade-in" style={{ paddingTop: "32px" }}>
-            <div style={{ marginBottom: "24px" }}>
+          <div className="animate-fade-in" style={{ paddingTop: 32 }}>
+            <div style={{ marginBottom: 24 }}>
               <button
                 onClick={handleBack}
                 style={{
@@ -293,7 +238,7 @@ export function App() {
                   color: "var(--text-tertiary)",
                   cursor: "pointer",
                   fontSize: "0.875rem",
-                  fontFamily: "var(--font-sans)",
+                  fontFamily: "inherit",
                   padding: "4px 0",
                 }}
               >
@@ -314,7 +259,6 @@ export function App() {
           </div>
         )}
       </main>
-
       <Footer />
     </div>
   );
